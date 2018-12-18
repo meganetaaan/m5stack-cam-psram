@@ -15,12 +15,14 @@
 #include "esp_event_loop.h"
 #include "esp_http_server.h"
 
+#include "qr_recognize.h"
+
 static const char* TAG = "camera";
 
 //M5STACK_CAM PIN Map
 #define CAM_PIN_RESET   15 //software reset will be performed
 #define CAM_PIN_XCLK    27
-#define CAM_PIN_SIOD    25
+#define CAM_PIN_SIOD    22
 #define CAM_PIN_SIOC    23
 
 #define CAM_PIN_D7      19
@@ -32,7 +34,7 @@ static const char* TAG = "camera";
 #define CAM_PIN_D1      35
 #define CAM_PIN_D0      32
 
-#define CAM_PIN_VSYNC   22
+#define CAM_PIN_VSYNC   25
 #define CAM_PIN_HREF    26
 #define CAM_PIN_PCLK    21
 
@@ -77,7 +79,7 @@ static camera_config_t camera_config = {
     .ledc_channel = LEDC_CHANNEL_0,
 
     .pixel_format = PIXFORMAT_JPEG,//YUV422,GRAYSCALE,RGB565,JPEG
-    .frame_size = FRAMESIZE_QVGA,//QQVGA-UXGA Do not use sizes above QVGA when not JPEG
+    .frame_size = FRAMESIZE_VGA,//QQVGA-UXGA Do not use sizes above QVGA when not JPEG
 
     .jpeg_quality = 2, //0-63 lower number means higher quality
     .fb_count = 3 //if more than one, i2s runs in continuous mode. Use only with JPEG
@@ -101,13 +103,33 @@ void app_main()
         ESP_LOGE(TAG, "Camera Init Failed");
     }
     
+    // 簡単のため、起動のたびにQRコード読み取りを一度実行するだけ
+    xTaskCreate(qr_recognize, "qr_recognize", 111500, &camera_config, 5, NULL);
+
+    /*
     wifi_init_softap();
+
+    ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
     vTaskDelay(100 / portTICK_PERIOD_MS);
     http_server_init();
+    */
 }
 
 #ifdef CAM_USE_WIFI
+
+esp_err_t qr_httpd_handler(httpd_req_t *req){
+    camera_fb_t * fb = NULL;
+    esp_err_t res = ESP_OK;
+    size_t fb_len = 0;
+    int64_t fr_start = esp_timer_get_time();
+
+    // TODO: QRコード読み取り
+    
+    int64_t fr_end = esp_timer_get_time();
+    ESP_LOGI(TAG, "%ums", (uint32_t)((fr_end - fr_start)/1000));
+    return res;
+}
 
 esp_err_t jpg_httpd_handler(httpd_req_t *req){
     camera_fb_t * fb = NULL;
@@ -203,6 +225,13 @@ esp_err_t jpg_stream_httpd_handler(httpd_req_t *req){
 
 static esp_err_t http_server_init(){
     httpd_handle_t server;
+    httpd_uri_t qr_uri = {
+        .uri = "/qr",
+        .method = HTTP_GET,
+        .handler = qr_httpd_handler,
+        .user_ctx = NULL
+    };
+
     httpd_uri_t jpeg_uri = {
         .uri = "/jpg",
         .method = HTTP_GET,
@@ -220,6 +249,7 @@ static esp_err_t http_server_init(){
     httpd_config_t http_options = HTTPD_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(httpd_start(&server, &http_options));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &qr_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &jpeg_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &jpeg_stream_uri));
 
