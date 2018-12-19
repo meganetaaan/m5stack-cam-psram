@@ -78,7 +78,7 @@ static camera_config_t camera_config = {
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_JPEG,//YUV422,GRAYSCALE,RGB565,JPEG
+    .pixel_format = PIXFORMAT_GRAYSCALE,//YUV422,GRAYSCALE,RGB565,JPEG
     .frame_size = FRAMESIZE_VGA,//QQVGA-UXGA Do not use sizes above QVGA when not JPEG
 
     .jpeg_quality = 2, //0-63 lower number means higher quality
@@ -104,16 +104,14 @@ void app_main()
     }
     
     // 簡単のため、起動のたびにQRコード読み取りを一度実行するだけ
-    xTaskCreate(qr_recognize, "qr_recognize", 111500, &camera_config, 5, NULL);
+    // xTaskCreate(qr_recognize, "qr_recognize", 111500, &camera_config, 5, NULL);
 
-    /*
     wifi_init_softap();
 
     ESP_LOGI(TAG, "Free heap: %u", xPortGetFreeHeapSize());
 
     vTaskDelay(100 / portTICK_PERIOD_MS);
     http_server_init();
-    */
 }
 
 #ifdef CAM_USE_WIFI
@@ -128,6 +126,34 @@ esp_err_t qr_httpd_handler(httpd_req_t *req){
     
     int64_t fr_end = esp_timer_get_time();
     ESP_LOGI(TAG, "%ums", (uint32_t)((fr_end - fr_start)/1000));
+    return res;
+}
+
+esp_err_t grayscale_httpd_handler(httpd_req_t *req)
+{
+    camera_fb_t * fb = NULL;
+    esp_err_t res = ESP_OK;
+    size_t fb_len = 0;
+    int64_t fr_start = esp_timer_get_time();
+
+    fb = esp_camera_fb_get();
+    if (!fb) {
+        ESP_LOGE(TAG, "Camera capture failed");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    res = httpd_resp_set_type(req, "image/x-portable-graymap");
+    if(res == ESP_OK){
+        res = httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=grayscale.pgm");
+    }
+
+    if(res == ESP_OK){
+        fb_len = fb->len;
+        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    }
+    esp_camera_fb_return(fb);
+    int64_t fr_end = esp_timer_get_time();
+    ESP_LOGI(TAG, "GRAYSCALE: %uKB %ums", (uint32_t)(fb_len/1024), (uint32_t)((fr_end - fr_start)/1000));
     return res;
 }
 
@@ -239,6 +265,13 @@ static esp_err_t http_server_init(){
         .user_ctx = NULL
     };
 
+    httpd_uri_t grayscale_uri = {
+        .uri = "/grayscale",
+        .method = HTTP_GET,
+        .handler = grayscale_httpd_handler,
+        .user_ctx = NULL
+    };
+
     httpd_uri_t jpeg_stream_uri = {
         .uri = "/",
         .method = HTTP_GET,
@@ -249,6 +282,9 @@ static esp_err_t http_server_init(){
     httpd_config_t http_options = HTTPD_DEFAULT_CONFIG();
 
     ESP_ERROR_CHECK(httpd_start(&server, &http_options));
+    if (camera_config.pixel_format == PIXFORMAT_GRAYSCALE) {
+        ESP_ERROR_CHECK(httpd_register_uri_handler(server, &grayscale_uri) );
+    }
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &qr_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &jpeg_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &jpeg_stream_uri));

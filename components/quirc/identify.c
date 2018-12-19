@@ -16,6 +16,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <math.h>
 #include "quirc_internal.h"
 
@@ -1106,13 +1107,17 @@ void quirc_end(struct quirc *q)
 {
 	int i;
 
+	// printf("setup\n");
 	pixels_setup(q);
+	// printf("th\n");
 	threshold(q);
 
 	for (i = 0; i < q->h; i++)
+		// printf("scan\n");
 		finder_scan(q, i);
 
 	for (i = 0; i < q->num_capstones; i++)
+		// printf("grp\n");
 		test_grouping(q, i);
 }
 
